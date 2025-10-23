@@ -45,19 +45,10 @@
         const STATUS_OPTIONS = ['Open', 'In Progress', 'Resolved'];
 
         // =========================================================================
-        // 🚨 ACTION REQUIRED: PASTE YOUR FIREBASE CONFIG HERE TO ENABLE DATA SAVING 🚨
-        // Replace all the placeholder empty strings ("") with your actual keys
-        // from your Firebase Project Settings (Web App).
-        // =========================================================================
+        // FIX FOR GITHUB DEPLOYMENT: USING FALLBACKS 
+        // These fallbacks prevent the "Error initializing application" on GitHub Pages.
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'my-community-app-1';
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
-            apiKey: "",
-            authDomain: "",
-            projectId: "",
-            storageBucket: "",
-            messagingSenderId: "",
-            appId: ""
-        };
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
         // =========================================================================
 
@@ -89,18 +80,16 @@
          */
         async function initializeFirebase() {
             try {
-                // Check if necessary config keys are present (removes 'DEMO MODE')
-                if (!firebaseConfig.projectId || firebaseConfig.projectId.length === 0) {
-                    const errorMessage = 'Error: Firebase configuration missing. Please add your keys to the firebaseConfig object.';
-                    console.error(errorMessage);
-                    showNotification(errorMessage, 'bg-red-700');
-                    // Ensure the UI reflects the failure to connect
-                    document.getElementById('user-id-display').textContent = 'User ID: CONFIG ERROR';
-                    isAuthReady = false;
-                    return; 
+                // If firebaseConfig is empty (when deployed to GitHub Pages), show warning
+                if (Object.keys(firebaseConfig).length === 0) {
+                     showNotification('Warning: Running in unconfigured mode (Data saving disabled).', 'bg-yellow-500');
+                     isAuthReady = true;
+                     document.getElementById('user-id-display').textContent = `User ID: GITHUB_DEMO`;
+                     // Since we can't init app, we stop here.
+                     return; 
                 }
 
-                // --- LIVE FIREBASE EXECUTION PATH (Required for GitHub) ---
+                // Normal initialization path (when running in Canvas environment)
                 const app = initializeApp(firebaseConfig);
                 db = getFirestore(app);
                 auth = getAuth(app);
@@ -126,7 +115,7 @@
 
             } catch (error) {
                 console.error("Firebase Initialization Error:", error);
-                showNotification(`Error initializing application: ${error.message}`, 'bg-red-500');
+                showNotification('Error initializing application. Check console.', 'bg-red-500');
             }
         }
 
@@ -144,13 +133,11 @@
                 document.getElementById('complaint-form-section').classList.add('hidden');
                 document.getElementById('admin-login-section').classList.add('hidden');
                 
-                // Re-setup listener to fetch ALL complaints (only if DB is active)
+                // Re-setup listener to fetch ALL complaints
                 if (db) { 
                     setupRealtimeListener();
                 } else {
-                    showNotification('Admin mode entered, but database is not active (Config Error).', 'bg-yellow-500');
-                    document.getElementById('complaints-list-heading').textContent = 'All Complaints Filed (Admin View - CONFIG ERROR)';
-                    document.getElementById('complaints-list').innerHTML = `<p class="text-center text-gray-500 py-10">Admin view requires a live database connection to fetch all data.</p>`;
+                    showNotification('Admin mode entered, but database is not active.', 'bg-yellow-500');
                 }
             } else {
                 showNotification('Invalid Admin Key.', 'bg-yellow-600');
@@ -161,10 +148,8 @@
          * Updates the status of a specific complaint.
          */
         window.updateComplaintStatus = async function(docId, newStatus) {
-            if (!db) return showNotification('Cannot update status. Database connection failed.', 'bg-red-500');
-
             const collectionPath = getCollectionPath();
-            if (!collectionPath) return showNotification('System not ready.', 'bg-red-500');
+            if (!db || !collectionPath) return showNotification('System not ready.', 'bg-red-500');
 
             try {
                 const docRef = doc(db, collectionPath, docId);
@@ -205,19 +190,14 @@
          * Submits a new complaint to the public Firestore path.
          */
         window.submitComplaint = async function() {
+            if (!isAuthReady || !db) return showNotification('Database connection required to file complaints.', 'bg-red-500');
+
             const title = document.getElementById('complaint-title').value.trim();
             const description = document.getElementById('complaint-description').value.trim();
 
             if (!title || !description) {
                 return showNotification('Please fill in both title and description.', 'bg-yellow-500');
             }
-            
-            if (!db) {
-                // Should only happen if initialization failed due to missing config
-                return showNotification('Cannot file complaint: Database connection failed. Check console for config error.', 'bg-red-500');
-            }
-
-            if (!isAuthReady) return showNotification('System not ready. Please try again.', 'bg-red-500');
             
             const collectionPath = getCollectionPath();
             if (!collectionPath) return showNotification('System path error. Please refresh.', 'bg-red-500');
@@ -367,8 +347,6 @@
                 // Update summary count using client-side totals
                 document.getElementById('resolved-count').textContent = resolvedCount;
                 document.getElementById('total-count').textContent = totalCount;
-                // Calculate pending count dynamically based on the current totals
-                document.getElementById('pending-count').textContent = totalCount - resolvedCount; 
 
                 if (totalCount === 0) {
                      complaintsContainer.innerHTML = `<p class="text-center text-gray-500 py-10">${isAdminMode ? 'No complaints have been filed yet.' : 'You have no complaints filed yet. Use the form above to start tracking!'}</p>`;
@@ -394,7 +372,7 @@
         <div class="max-w-7xl mx-auto flex justify-between items-center">
             <h1 class="text-2xl font-bold text-white">Community Issue Tracker</h1>
             <div class="flex items-center space-x-4">
-                   <span id="admin-mode-indicator" class="hidden admin-badge px-3 py-1 text-sm font-semibold text-white rounded-full shadow-lg">ADMIN MODE</span>
+                 <span id="admin-mode-indicator" class="hidden admin-badge px-3 py-1 text-sm font-semibold text-white rounded-full shadow-lg">ADMIN MODE</span>
                 <p id="user-id-display" class="text-xs text-indigo-200 bg-indigo-700 p-1 px-2 rounded-full hidden sm:block">User ID: Loading...</p>
             </div>
         </div>
@@ -406,7 +384,7 @@
         <section id="complaint-form-section" class="lg:col-span-1 bg-white p-6 rounded-2xl shadow-xl h-fit">
             <h2 class="text-2xl font-bold text-gray-800 border-b pb-3 mb-4 flex items-center">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                 </svg>
                 File a New Complaint
             </h2>
@@ -432,7 +410,7 @@
         <section id="admin-login-section" class="lg:col-span-1 bg-gray-100 p-6 rounded-2xl shadow-xl h-fit border-l-4 border-red-500">
             <h2 class="text-xl font-bold text-gray-800 mb-3 flex items-center">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2 text-red-500" viewBox="0 0 20 20" fill="currentColor">
-                    <path fill-rule="evenodd" d="M18 8a6 6 0 01-4.8 5.86c-1.32.74-2.85 1.14-4.5 1.14s-3.18-.4-4.5-1.14A6 6 0 1118 8zM9 8a1 1 0 102 0 1 1 0 00-2 0zM7 8a1 1 0 102 0 1 1 0 00-2 0zM11 8a1 1 0 102 0 1 1 0 00-2 0z" clip-rule="evenodd" />
+                  <path fill-rule="evenodd" d="M18 8a6 6 0 01-4.8 5.86c-1.32.74-2.85 1.14-4.5 1.14s-3.18-.4-4.5-1.14A6 6 0 1118 8zM9 8a1 1 0 102 0 1 1 0 00-2 0zM7 8a1 1 0 102 0 1 1 0 00-2 0zM11 8a1 1 0 102 0 1 1 0 00-2 0z" clip-rule="evenodd" />
                 </svg>
                 Management Login
             </h2>
@@ -449,7 +427,7 @@
         <section class="lg:col-span-2">
             <h2 id="complaints-list-heading" class="text-2xl font-bold text-gray-800 mb-4 flex items-center">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
                 </svg>
                 My Filed Complaints & Status
             </h2>
@@ -466,7 +444,12 @@
                 </div>
                 <div>
                     <p class="text-sm text-gray-500">Open/In Progress</p>
-                    <p id="pending-count" class="text-3xl font-extrabold text-red-600">0</p>
+                    <p class="text-3xl font-extrabold text-red-600" id="pending-count">
+                        <script>
+                            // This script is purely for visual display consistency until the listener loads.
+                            document.getElementById('pending-count').textContent = parseInt(document.getElementById('total-count').textContent) - parseInt(document.getElementById('resolved-count').textContent);
+                        </script>
+                    </p>
                 </div>
             </div>
 
