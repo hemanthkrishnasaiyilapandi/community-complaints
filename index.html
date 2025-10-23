@@ -29,10 +29,12 @@
         }
     </style>
     <script type="module">
+        // NOTE: Firebase imports are kept for use in this environment, 
+        // but the initialization below is adjusted for external hosting (like GitHub Pages) 
+        // where the Canvas environment variables are not available.
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js"; 
         import { getFirestore, collection, addDoc, query, onSnapshot, updateDoc, doc, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        // setLogLevel is removed as it's not strictly necessary for functionality
 
         // Global variables for Firebase access
         let db = null;
@@ -45,10 +47,17 @@
         const ADMIN_SECRET_KEY = "admin4321"; // Simple hardcoded key for demonstration purposes
         const STATUS_OPTIONS = ['Open', 'In Progress', 'Resolved'];
 
-        // Retrieve and parse mandatory Firebase config variables
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        // =========================================================================
+        // FIX FOR GITHUB DEPLOYMENT: 
+        // Using fallback values for the Canvas environment variables (__app_id, etc.).
+        // When running on GitHub Pages, these fallbacks are used, preventing the
+        // initialization error when the variables are undefined.
+        // =========================================================================
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'my-community-app-1';
         const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        // =========================================================================
+
 
         /**
          * Converts Firebase Timestamp to a readable string.
@@ -78,6 +87,17 @@
          */
         async function initializeFirebase() {
             try {
+                // If firebaseConfig is empty (when deployed to GitHub Pages), show an error 
+                // but prevent the crash.
+                if (Object.keys(firebaseConfig).length === 0) {
+                     showNotification('Warning: Running in unconfigured mode (Data saving disabled).', 'bg-yellow-500');
+                     isAuthReady = true;
+                     document.getElementById('user-id-display').textContent = `User ID: GITHUB_DEMO`;
+                     // We stop here since we can't initialize the app without config
+                     return; 
+                }
+
+                // Normal initialization path (when running in Canvas environment)
                 const app = initializeApp(firebaseConfig);
                 db = getFirestore(app);
                 auth = getAuth(app);
@@ -103,7 +123,8 @@
 
             } catch (error) {
                 console.error("Firebase Initialization Error:", error);
-                showNotification('Error initializing application. Check console.', 'bg-red-500');
+                // Specific error message for common deployment failure
+                showNotification('Error initializing application. Firebase may not be configured.', 'bg-red-500');
             }
         }
 
@@ -122,7 +143,12 @@
                 document.getElementById('admin-login-section').classList.add('hidden');
                 
                 // Re-setup listener to fetch ALL complaints
-                setupRealtimeListener();
+                if (db) { // Check if DB is initialized before calling listener
+                    setupRealtimeListener();
+                } else {
+                    showNotification('Admin mode entered, but database is not active.', 'bg-yellow-500');
+                }
+
             } else {
                 showNotification('Invalid Admin Key.', 'bg-yellow-600');
             }
@@ -176,7 +202,7 @@
          * Submits a new complaint to the public Firestore path.
          */
         window.submitComplaint = async function() {
-            if (!isAuthReady || !db) return showNotification('System not ready. Please wait.', 'bg-red-500');
+            if (!isAuthReady || !db) return showNotification('Database connection required to file complaints.', 'bg-red-500');
 
             const title = document.getElementById('complaint-title').value.trim();
             const description = document.getElementById('complaint-description').value.trim();
