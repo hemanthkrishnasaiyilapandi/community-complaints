@@ -29,9 +29,6 @@
         }
     </style>
     <script type="module">
-        // NOTE: Firebase imports are kept for use in this environment, 
-        // but the initialization below is adjusted for external hosting (like GitHub Pages) 
-        // where the Canvas environment variables are not available.
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js"; 
         import { getFirestore, collection, addDoc, query, onSnapshot, updateDoc, doc, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
@@ -48,16 +45,12 @@
         const STATUS_OPTIONS = ['Open', 'In Progress', 'Resolved'];
 
         // =========================================================================
-        // FIX FOR GITHUB DEPLOYMENT: 
-        // Using fallback values for the Canvas environment variables (__app_id, etc.).
-        // When running on GitHub Pages, these fallbacks are used, preventing the
-        // initialization error when the variables are undefined.
-        // =========================================================================
+        // FIX FOR GITHUB DEPLOYMENT: USING FALLBACKS 
+        // These fallbacks prevent the "Error initializing application" on GitHub Pages.
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'my-community-app-1';
         const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
         // =========================================================================
-
 
         /**
          * Converts Firebase Timestamp to a readable string.
@@ -87,13 +80,12 @@
          */
         async function initializeFirebase() {
             try {
-                // If firebaseConfig is empty (when deployed to GitHub Pages), show an error 
-                // but prevent the crash.
+                // If firebaseConfig is empty (when deployed to GitHub Pages), show warning
                 if (Object.keys(firebaseConfig).length === 0) {
                      showNotification('Warning: Running in unconfigured mode (Data saving disabled).', 'bg-yellow-500');
                      isAuthReady = true;
                      document.getElementById('user-id-display').textContent = `User ID: GITHUB_DEMO`;
-                     // We stop here since we can't initialize the app without config
+                     // Since we can't init app, we stop here.
                      return; 
                 }
 
@@ -123,8 +115,7 @@
 
             } catch (error) {
                 console.error("Firebase Initialization Error:", error);
-                // Specific error message for common deployment failure
-                showNotification('Error initializing application. Firebase may not be configured.', 'bg-red-500');
+                showNotification('Error initializing application. Check console.', 'bg-red-500');
             }
         }
 
@@ -143,12 +134,11 @@
                 document.getElementById('admin-login-section').classList.add('hidden');
                 
                 // Re-setup listener to fetch ALL complaints
-                if (db) { // Check if DB is initialized before calling listener
+                if (db) { 
                     setupRealtimeListener();
                 } else {
                     showNotification('Admin mode entered, but database is not active.', 'bg-yellow-500');
                 }
-
             } else {
                 showNotification('Invalid Admin Key.', 'bg-yellow-600');
             }
@@ -168,8 +158,6 @@
                 // Update the status and set the notification flag if resolved
                 await updateDoc(docRef, {
                     status: newStatus,
-                    // If status becomes 'Resolved', set flag to true to notify the user.
-                    // If it changes away from 'Resolved' (e.g., back to Open), set to false.
                     isNewResolution: isResolved 
                 });
 
@@ -247,7 +235,6 @@
 
         /**
          * Sets up the real-time listener, filtering based on isAdminMode.
-         * The query only uses orderBy, and filtering by user is done client-side to avoid index errors.
          */
         function setupRealtimeListener() {
             if (!db || !currentUserId) return;
@@ -294,7 +281,6 @@
 
                         // Immediately update the document to turn off the notification flag
                         try {
-                            // Note: We use doc(db, collectionPath, docId) to ensure correct path
                             await updateDoc(doc(db, collectionPath, docId), {
                                 isNewResolution: false
                             });
