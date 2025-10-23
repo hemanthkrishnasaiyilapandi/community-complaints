@@ -3,170 +3,30 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Community Complaint System (User & Admin)</title>
+    <title>Firebase Config Error Example</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        /* Custom font and scrollbar styling */
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
         body {
             font-family: 'Inter', sans-serif;
-            background-color: #f4f7f9;
-        }
-        .complaint-card {
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-        .complaint-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-        }
-        /* Style for the Admin Badge */
-        .admin-badge {
-            animation: pulse-admin 2s infinite;
-        }
-        @keyframes pulse-admin {
-            0%, 100% { background-color: #f87171; }
-            50% { background-color: #ef4444; }
+            background-color: #f8fafc;
         }
     </style>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js"; 
-        import { getFirestore, collection, addDoc, query, onSnapshot, updateDoc, doc, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Global variables for Firebase access
-        let db = null;
-        let auth = null;
-        let currentUserId = null;
-        let isAuthReady = false;
+        // --- GLOBAL VARIABLES (SET TO PLACEHOLDERS) ---
+        let isAppReady = false;
 
-        // --- Admin/Mode Variables ---
-        let isAdminMode = false;
-        const ADMIN_SECRET_KEY = "admin4321"; // Simple hardcoded key for demonstration purposes
-        const STATUS_OPTIONS = ['Open', 'In Progress', 'Resolved'];
-
-        // =========================================================================
-        // FIX FOR GITHUB DEPLOYMENT: USING FALLBACKS 
-        // These fallbacks prevent the "Error initializing application" on GitHub Pages.
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'my-community-app-1';
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-        // =========================================================================
-
-        /**
-         * Converts Firebase Timestamp to a readable string.
-         * @param {object} timestamp - The Firebase Timestamp object.
-         * @returns {string} Formatted date string.
-         */
-        function formatDate(timestamp) {
-            if (timestamp && timestamp.toDate) {
-                return timestamp.toDate().toLocaleDateString('en-US', {
-                    year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
-                });
-            }
-            return 'N/A';
-        }
-
-        /**
-         * Generates the public Firestore collection path for ALL complaints.
-         * @returns {string} The public Firestore path.
-         */
-        function getCollectionPath() {
-            // Public path: /artifacts/{appId}/public/data/complaints
-            return `/artifacts/${appId}/public/data/complaints`;
-        }
-
-        /**
-         * Initializes Firebase and sets up authentication sequentially.
-         */
-        async function initializeFirebase() {
-            try {
-                // If firebaseConfig is empty (when deployed to GitHub Pages), show warning
-                if (Object.keys(firebaseConfig).length === 0) {
-                     showNotification('Warning: Running in unconfigured mode (Data saving disabled).', 'bg-yellow-500');
-                     isAuthReady = true;
-                     document.getElementById('user-id-display').textContent = `User ID: GITHUB_DEMO`;
-                     // Since we can't init app, we stop here.
-                     return; 
-                }
-
-                // Normal initialization path (when running in Canvas environment)
-                const app = initializeApp(firebaseConfig);
-                db = getFirestore(app);
-                auth = getAuth(app);
-
-                // 1. Authenticate the user (Custom Token or Anonymous)
-                if (initialAuthToken) {
-                    const userCredential = await signInWithCustomToken(auth, initialAuthToken);
-                    currentUserId = userCredential.user.uid;
-                } else {
-                    // Fallback to anonymous sign-in if no custom token is available
-                    const anonymousUser = await signInAnonymously(auth);
-                    currentUserId = anonymousUser.user.uid;
-                }
-
-                // 2. Set readiness state and display ID only after successful authentication
-                isAuthReady = true;
-                document.getElementById('user-id-display').textContent = `User ID: ${currentUserId}`;
-
-                // 3. Start listening only after successful authentication
-                if (currentUserId) {
-                    setupRealtimeListener();
-                }
-
-            } catch (error) {
-                console.error("Firebase Initialization Error:", error);
-                showNotification('Error initializing application. Check console.', 'bg-red-500');
-            }
-        }
-
-        /**
-         * Switches the application to Admin Mode and refreshes the listener.
-         */
-        window.enterAdminMode = function() {
-            const keyInput = document.getElementById('admin-key').value;
-            if (keyInput === ADMIN_SECRET_KEY) {
-                isAdminMode = true;
-                showNotification('Admin Mode Activated!', 'bg-red-600');
-                
-                // Update UI elements for admin view
-                document.getElementById('admin-mode-indicator').classList.remove('hidden');
-                document.getElementById('complaint-form-section').classList.add('hidden');
-                document.getElementById('admin-login-section').classList.add('hidden');
-                
-                // Re-setup listener to fetch ALL complaints
-                if (db) { 
-                    setupRealtimeListener();
-                } else {
-                    showNotification('Admin mode entered, but database is not active.', 'bg-yellow-500');
-                }
-            } else {
-                showNotification('Invalid Admin Key.', 'bg-yellow-600');
-            }
-        }
-        
-        /**
-         * Updates the status of a specific complaint.
-         */
-        window.updateComplaintStatus = async function(docId, newStatus) {
-            const collectionPath = getCollectionPath();
-            if (!db || !collectionPath) return showNotification('System not ready.', 'bg-red-500');
-
-            try {
-                const docRef = doc(db, collectionPath, docId);
-                const isResolved = newStatus === 'Resolved';
-                
-                // Update the status and set the notification flag if resolved
-                await updateDoc(docRef, {
-                    status: newStatus,
-                    isNewResolution: isResolved 
-                });
-
-                showNotification(`Status updated to ${newStatus} for Complaint ID: ${docId}`, 'bg-green-600');
-            } catch (e) {
-                console.error("Error updating complaint status: ", e);
-                showNotification(`Error updating status: ${e.message}`, 'bg-red-500');
-            }
-        }
+        // The presence of these placeholder strings is what triggers the error check below.
+        const firebaseConfig = {
+            apiKey: "YOUR_API_KEY_HERE",           
+            authDomain: "YOUR_AUTH_DOMAIN_HERE",   
+            projectId: "YOUR_PROJECT_ID_HERE",     
+            storageBucket: "YOUR_STORAGE_BUCKET_HERE", 
+            messagingSenderId: "YOUR_MESSAGING_SENDER_ID_HERE", 
+            appId: "YOUR_APP_ID_HERE"              
+        };
 
         /**
          * Displays a temporary notification banner.
@@ -181,284 +41,67 @@
             }, 5000);
             
             setTimeout(() => {
+                 // Reset the class to hide it again
                  notificationEl.classList.remove('translate-x-full');
                  notificationEl.className = 'fixed top-4 right-4 p-4 rounded-lg text-white shadow-xl z-50 transition-transform transform translate-x-full bg-blue-500';
             }, 6000); 
         }
 
         /**
-         * Submits a new complaint to the public Firestore path.
+         * Initializes Firebase and includes the configuration check.
          */
-        window.submitComplaint = async function() {
-            if (!isAuthReady || !db) return showNotification('Database connection required to file complaints.', 'bg-red-500');
-
-            const title = document.getElementById('complaint-title').value.trim();
-            const description = document.getElementById('complaint-description').value.trim();
-
-            if (!title || !description) {
-                return showNotification('Please fill in both title and description.', 'bg-yellow-500');
-            }
-            
-            const collectionPath = getCollectionPath();
-            if (!collectionPath) return showNotification('System path error. Please refresh.', 'bg-red-500');
-
-            const submitButton = document.getElementById('submit-btn');
-            submitButton.disabled = true;
-            submitButton.textContent = 'Submitting...';
-
+        function initializeFirebase() {
             try {
-                const complaintData = {
-                    userId: currentUserId,
-                    title: title,
-                    description: description,
-                    status: 'Open', // Initial status
-                    isNewResolution: false, 
-                    timestamp: serverTimestamp()
-                };
+                // --- THE ERROR CHECKING LOGIC ---
+                // This condition checks if the projectId field still contains the placeholder string.
+                if (firebaseConfig.projectId === "YOUR_PROJECT_ID_HERE") {
+                    const errorMessage = 'Error: Firebase configuration missing. Please add your keys to the firebaseConfig object.';
+                    console.error("FIREBASE ERROR:", errorMessage); // This will show in the console
+                    showNotification(errorMessage, 'bg-red-700'); // This will show in the UI
 
-                const complaintsRef = collection(db, collectionPath);
-                await addDoc(complaintsRef, complaintData);
+                    document.getElementById('status-message').innerHTML = `
+                        <p class="text-xl font-semibold text-red-600 mb-2">Configuration Error Detected</p>
+                        <p class="text-gray-700 font-mono bg-gray-100 p-3 rounded-lg">${errorMessage}</p>
+                        <p class="mt-4 text-sm text-gray-500">Check the JavaScript code in the editor to see the 'firebaseConfig' object.</p>
+                    `;
+                    
+                    isAppReady = false;
+                    return; 
+                }
 
-                showNotification('Complaint filed successfully! Status is Open.', 'bg-green-500');
-                // Clear form
-                document.getElementById('complaint-title').value = '';
-                document.getElementById('complaint-description').value = '';
+                // If the app successfully connects, this code block would execute (but won't here)
+                const app = initializeApp(firebaseConfig);
+                document.getElementById('status-message').textContent = 'Firebase initialized successfully (if you replaced the keys).';
+                isAppReady = true;
 
-            } catch (e) {
-                console.error("Error submitting complaint: ", e);
-                showNotification(`Error filing complaint: ${e.message}`, 'bg-red-500');
-            } finally {
-                submitButton.disabled = false;
-                submitButton.textContent = 'File Complaint';
+            } catch (error) {
+                console.error("Unexpected Initialization Error:", error);
+                showNotification(`Fatal Error: ${error.message}`, 'bg-red-500');
             }
         }
 
-        /**
-         * Sets up the real-time listener, filtering based on isAdminMode.
-         */
-        function setupRealtimeListener() {
-            if (!db || !currentUserId) return;
-            
-            const collectionPath = getCollectionPath();
-            if (!collectionPath) return; 
-
-            const complaintsRef = collection(db, collectionPath);
-            
-            // Query only uses orderBy, preventing the composite index requirement error.
-            const q = query(complaintsRef, orderBy("timestamp", "desc"));
-            
-            let listHeading = isAdminMode ? 'All Complaints Filed (Admin View)' : 'My Filed Complaints & Status';
-            let filterUserId = isAdminMode ? null : currentUserId; // Filter in JS if not admin
-            
-            document.getElementById('complaints-list-heading').textContent = listHeading;
-
-
-            onSnapshot(q, (snapshot) => {
-                const complaintsContainer = document.getElementById('complaints-list');
-                complaintsContainer.innerHTML = ''; // Clear existing list
-                
-                let resolvedCount = 0;
-                let totalCount = 0; // Tracks the count of displayed items after client-side filtering
-                let resolutionNotified = false;
-
-                snapshot.docs.forEach(async (docSnapshot) => {
-                    const complaint = docSnapshot.data();
-                    const docId = docSnapshot.id;
-                    
-                    // --- CLIENT-SIDE FILTERING: Skip documents not belonging to the current user in user mode ---
-                    if (filterUserId && complaint.userId !== filterUserId) {
-                        return; 
-                    }
-                    
-                    totalCount++; // Increment count only for items that pass the filter
-                    
-                    const timestampStr = formatDate(complaint.timestamp);
-
-                    // --- Real-time Resolution Notification Logic (User only) ---
-                    if (!isAdminMode && complaint.status === 'Resolved' && complaint.isNewResolution === true && !resolutionNotified) {
-                        showNotification(`🎉 Your complaint "${complaint.title}" has been RESOLVED!`, 'bg-indigo-600');
-                        resolutionNotified = true;
-
-                        // Immediately update the document to turn off the notification flag
-                        try {
-                            await updateDoc(doc(db, collectionPath, docId), {
-                                isNewResolution: false
-                            });
-                        } catch (e) {
-                            console.error("Error clearing notification flag:", e);
-                        }
-                    }
-
-                    if (complaint.status === 'Resolved') {
-                        resolvedCount++;
-                    }
-                    
-                    // --- Status Styling ---
-                    let statusClass = '';
-                    let statusBg = '';
-                    if (complaint.status === 'Resolved') {
-                        statusClass = 'text-green-700 font-bold';
-                        statusBg = 'bg-green-100';
-                    } else if (complaint.status === 'In Progress') {
-                        statusClass = 'text-yellow-700 font-bold';
-                        statusBg = 'bg-yellow-100';
-                    } else {
-                        statusClass = 'text-red-700 font-bold';
-                        statusBg = 'bg-red-100';
-                    }
-
-                    let statusDisplay = '';
-
-                    if (isAdminMode) {
-                        // Admin: Show dropdown for status update
-                        const optionsHtml = STATUS_OPTIONS.map(status => 
-                            `<option value="${status}" ${complaint.status === status ? 'selected' : ''}>${status}</option>`
-                        ).join('');
-                        
-                        statusDisplay = `
-                            <select onchange="updateComplaintStatus('${docId}', this.value)" 
-                                    class="p-1 px-2 border border-gray-300 rounded-lg text-sm bg-white shadow-sm focus:ring-indigo-500 focus:border-indigo-500 cursor-pointer">
-                                ${optionsHtml}
-                            </select>
-                        `;
-
-                    } else {
-                        // User: Show static status badge
-                         statusDisplay = `<span class="px-3 py-1 text-sm rounded-full ${statusClass}">${complaint.status}</span>`;
-                    }
-                    
-                    // --- Complaint Card HTML ---
-                    const card = `
-                        <div class="complaint-card p-4 border border-gray-200 ${statusBg} rounded-xl shadow-lg flex flex-col justify-between">
-                            <div>
-                                <h3 class="text-lg font-semibold text-gray-800 mb-2">${complaint.title}</h3>
-                                <p class="text-sm text-gray-600 mb-3">${complaint.description}</p>
-                                ${isAdminMode ? `<p class="text-xs text-gray-400 mt-2">Filed by: <strong class="text-gray-700">${complaint.userId}</strong></p>` : ''}
-                            </div>
-                            <div class="flex justify-between items-end pt-2 border-t border-gray-300 mt-2">
-                                <span class="text-xs text-gray-500">Filed: ${timestampStr}</span>
-                                ${statusDisplay}
-                            </div>
-                        </div>
-                    `;
-                    complaintsContainer.insertAdjacentHTML('beforeend', card);
-                });
-
-                // Update summary count using client-side totals
-                document.getElementById('resolved-count').textContent = resolvedCount;
-                document.getElementById('total-count').textContent = totalCount;
-
-                if (totalCount === 0) {
-                     complaintsContainer.innerHTML = `<p class="text-center text-gray-500 py-10">${isAdminMode ? 'No complaints have been filed yet.' : 'You have no complaints filed yet. Use the form above to start tracking!'}</p>`;
-                }
-            }, (error) => {
-                console.error("Error listening to complaints:", error);
-                showNotification(`Failed to load complaints data: ${error.message}`, 'bg-red-500');
-            });
-        }
-
-        // Initialize the application on window load
+        // Run initialization on page load
         window.onload = initializeFirebase;
     </script>
 </head>
-<body class="min-h-screen">
+<body class="min-h-screen p-8">
 
     <!-- Notification Banner -->
     <div id="notification-banner" class="fixed top-4 right-4 p-4 rounded-lg text-white shadow-xl z-50 transition-transform transform translate-x-full bg-blue-500">
-        <!-- Notification text appears here -->
+        <!-- Error message appears here -->
     </div>
 
-    <header class="bg-indigo-600 shadow-lg p-4 sticky top-0 z-10">
-        <div class="max-w-7xl mx-auto flex justify-between items-center">
-            <h1 class="text-2xl font-bold text-white">Community Issue Tracker</h1>
-            <div class="flex items-center space-x-4">
-                 <span id="admin-mode-indicator" class="hidden admin-badge px-3 py-1 text-sm font-semibold text-white rounded-full shadow-lg">ADMIN MODE</span>
-                <p id="user-id-display" class="text-xs text-indigo-200 bg-indigo-700 p-1 px-2 rounded-full hidden sm:block">User ID: Loading...</p>
-            </div>
-        </div>
-    </header>
-
-    <main class="max-w-7xl mx-auto p-4 md:p-8 grid grid-cols-1 lg:grid-cols-3 gap-8">
-
-        <!-- Complaint Submission Section (Left/Top - Hidden in Admin Mode) -->
-        <section id="complaint-form-section" class="lg:col-span-1 bg-white p-6 rounded-2xl shadow-xl h-fit">
-            <h2 class="text-2xl font-bold text-gray-800 border-b pb-3 mb-4 flex items-center">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                </svg>
-                File a New Complaint
-            </h2>
-
-            <div class="space-y-4">
-                <div>
-                    <label for="complaint-title" class="block text-sm font-medium text-gray-700 mb-1">Title (e.g., Leaking Faucet, Broken Light)</label>
-                    <input type="text" id="complaint-title" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500" placeholder="A brief summary">
-                </div>
-
-                <div>
-                    <label for="complaint-description" class="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                    <textarea id="complaint-description" rows="4" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500" placeholder="Detail the issue, location, and urgency."></textarea>
-                </div>
-
-                <button id="submit-btn" onclick="submitComplaint()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-lg shadow-md transition duration-200 disabled:opacity-50">
-                    File Complaint
-                </button>
-            </div>
-        </section>
+    <div class="max-w-xl mx-auto bg-white p-8 rounded-xl shadow-2xl border-t-8 border-red-500">
+        <h1 class="text-3xl font-bold text-gray-900 mb-4">Firebase App Status</h1>
         
-        <!-- Admin Login Section -->
-        <section id="admin-login-section" class="lg:col-span-1 bg-gray-100 p-6 rounded-2xl shadow-xl h-fit border-l-4 border-red-500">
-            <h2 class="text-xl font-bold text-gray-800 mb-3 flex items-center">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2 text-red-500" viewBox="0 0 20 20" fill="currentColor">
-                  <path fill-rule="evenodd" d="M18 8a6 6 0 01-4.8 5.86c-1.32.74-2.85 1.14-4.5 1.14s-3.18-.4-4.5-1.14A6 6 0 1118 8zM9 8a1 1 0 102 0 1 1 0 00-2 0zM7 8a1 1 0 102 0 1 1 0 00-2 0zM11 8a1 1 0 102 0 1 1 0 00-2 0z" clip-rule="evenodd" />
-                </svg>
-                Management Login
-            </h2>
-            <p class="text-sm text-gray-600 mb-3">Enter the secret key to view and resolve all complaints.</p>
-            <div class="flex space-x-2">
-                <input type="password" id="admin-key" placeholder="Enter Admin Key (e.g., admin4321)" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500">
-                <button onclick="enterAdminMode()" class="bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition duration-200">
-                    Go
-                </button>
-            </div>
-        </section>
+        <div id="status-message" class="mt-6 p-5 border-2 border-dashed border-gray-300 rounded-lg bg-red-50">
+            <p class="text-gray-500">Checking configuration...</p>
+        </div>
 
-        <!-- Complaint Status View Section (Right/Bottom) -->
-        <section class="lg:col-span-2">
-            <h2 id="complaints-list-heading" class="text-2xl font-bold text-gray-800 mb-4 flex items-center">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-                </svg>
-                My Filed Complaints & Status
-            </h2>
+        <h2 class="text-xl font-semibold mt-8 mb-3 text-gray-800">What is happening?</h2>
+        <p class="text-gray-600">The application's code intentionally stops the Firebase connection if it detects the placeholder values (like "YOUR\_API\_KEY\_HERE") are still in the `firebaseConfig` object.</p>
+        <p class="mt-2 text-gray-600">This prevents runtime errors that occur when Firebase tries to connect with invalid credentials, instead providing a clear message to the developer.</p>
+    </div>
 
-            <!-- Status Summary Card -->
-            <div class="bg-white p-4 rounded-xl shadow-lg mb-6 flex justify-around text-center border-t-4 border-indigo-600">
-                <div>
-                    <p class="text-sm text-gray-500">Total Filed</p>
-                    <p id="total-count" class="text-3xl font-extrabold text-indigo-600">0</p>
-                </div>
-                <div>
-                    <p class="text-sm text-gray-500">Resolved</p>
-                    <p id="resolved-count" class="text-3xl font-extrabold text-green-600">0</p>
-                </div>
-                <div>
-                    <p class="text-sm text-gray-500">Open/In Progress</p>
-                    <p class="text-3xl font-extrabold text-red-600" id="pending-count">
-                        <script>
-                            // This script is purely for visual display consistency until the listener loads.
-                            document.getElementById('pending-count').textContent = parseInt(document.getElementById('total-count').textContent) - parseInt(document.getElementById('resolved-count').textContent);
-                        </script>
-                    </p>
-                </div>
-            </div>
-
-            <!-- Complaints List -->
-            <div id="complaints-list" class="space-y-4">
-                <p class="text-center text-gray-500 py-10">Loading complaints...</p>
-            </div>
-
-        </section>
-    </main>
 </body>
 </html>
