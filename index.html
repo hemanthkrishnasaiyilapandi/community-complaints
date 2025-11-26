@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Functional Firebase Status Check</title>
+    <title>Standalone Status Check Demo</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
@@ -12,23 +12,10 @@
             background-color: #f0f4f8;
         }
     </style>
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, getDoc, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        // --- GLOBAL VARIABLES (READ FROM ENVIRONMENT) ---
-        // This version ensures Firebase is initialized using the configuration provided by the hosting environment.
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-        
-        // Firebase instances
-        let app, db, auth;
-        let userId = null;
+    <script>
+        // --- Standalone Demo Logic ---
         let isAppReady = false;
-
-        setLogLevel('Debug'); // Enable debug logging for visibility
+        const simulatedUserId = 'GITHUB_PAGES_USER_001';
 
         /**
          * Displays a temporary notification banner.
@@ -49,164 +36,33 @@
         }
 
         /**
-         * 1. Initializes Firebase services (App, Auth, Firestore).
-         * 2. Authenticates the user using the custom token or anonymously.
-         * 3. Updates the UI upon successful connection.
+         * Initializes the standalone application.
          */
-        async function initializeFirebase() {
-            // NEW LOGIC: If Firebase config is missing, enter DEMO MODE instead of throwing a FATAL error.
-            if (!firebaseConfig) {
-                isAppReady = true;
-                userId = 'DEMO_USER_ID';
-                
-                document.getElementById('status-message').innerHTML = `
-                    <p class="text-xl font-bold text-orange-600 mb-2 flex items-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                        </svg>
-                        Initialization Successful (DEMO MODE)
-                    </p>
-                    <p class="text-orange-700 font-semibold">⚠️ Configuration Missing</p>
-                    <p class="text-gray-700">The environment variables required for a real Firebase connection are missing. The app is running in simulation mode.</p>
-                    <div class="mt-4 p-4 bg-orange-100 rounded-xl border border-orange-300">
-                        <p class="text-sm font-semibold text-gray-800">Demo Details:</p>
-                        <p class="text-xs font-mono text-gray-700 break-all">Simulated User ID: <span class="font-bold">${userId}</span></p>
-                        <p class="text-xs font-mono text-gray-700 break-all">App ID: <span class="font-bold">${appId}</span></p>
-                    </div>
-                    <button id="test-firestore-btn" class="mt-4 w-full px-4 py-2 bg-gray-400 text-white font-semibold rounded-lg shadow-md cursor-not-allowed" disabled>Test Firestore (Disabled in Demo Mode)</button>
-                    <div id="firestore-log"></div>
-                `;
-                showNotification("Running in DEMO MODE: Firebase config is missing.", 'bg-orange-600');
-                
-                return; // Stop execution here
-            }
+        function initializeApp() {
+            // Set a successful simulated status
+            isAppReady = true;
 
-
-            // --- ORIGINAL WORKING INITIALIZATION PATH (if config exists) ---
-            try {
-                // Initialize core services
-                app = initializeApp(firebaseConfig);
-                auth = getAuth(app);
-                db = getFirestore(app);
-
-                // --- AUTHENTICATION PROCESS ---
-                let authCompleted = false;
-                
-                // Sign in with custom token if available, otherwise sign in anonymously
-                if (initialAuthToken) {
-                    await signInWithCustomToken(auth, initialAuthToken);
-                } else {
-                    await signInAnonymously(auth);
-                }
-
-                // Wait for the auth state to settle
-                await new Promise((resolve) => {
-                    const unsubscribe = onAuthStateChanged(auth, (user) => {
-                        if (user) {
-                            userId = user.uid;
-                            unsubscribe(); // Stop listening
-                            authCompleted = true;
-                            resolve();
-                        } else if (!authCompleted) {
-                            // If user is null and we haven't resolved yet, try anonymous sign in
-                            if (!auth.currentUser) {
-                                signInAnonymously(auth).then(() => {
-                                    // This is the fallback sign-in, the listener should catch it
-                                }).catch(e => {
-                                    console.error("Final anonymous sign-in failed", e);
-                                    resolve(); // Resolve even on failure to avoid infinite wait
-                                });
-                            } else {
-                                resolve(); // Should be signed in, but resolving
-                            }
-                        }
-                    });
-                    // Add a timeout just in case auth state doesn't change immediately
-                    setTimeout(resolve, 3000); 
-                });
-
-                // Final check for user ID after auth attempts
-                userId = auth.currentUser?.uid || 'anonymous-failed';
-                
-                // --- SUCCESS UI UPDATE ---
-                document.getElementById('status-message').innerHTML = `
-                    <p class="text-xl font-bold text-green-600 mb-2 flex items-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        Connection Established!
-                    </p>
-                    <p class="text-gray-700">Firebase services (Auth & Firestore) are now accessible.</p>
-                    <div class="mt-4 p-4 bg-green-50 rounded-xl border border-green-300">
-                        <p class="text-sm font-semibold text-gray-800">Environment Details:</p>
-                        <p class="text-xs font-mono text-gray-700 break-all">User ID: <span class="font-bold">${userId}</span></p>
-                        <p class="text-xs font-mono text-gray-700 break-all">App ID: <span class="font-bold">${appId}</span></p>
-                    </div>
-                    <button id="test-firestore-btn" class="mt-4 w-full px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition duration-150 shadow-md">Test Public Firestore Write & Read</button>
-                    <div id="firestore-log"></div>
-                `;
-                showNotification("Firebase & User Auth Complete.", 'bg-green-600');
-                isAppReady = true;
-
-                // Attach firestore test handler
-                document.getElementById('test-firestore-btn').addEventListener('click', testFirestoreConnection);
-
-            } catch (error) {
-                console.error("Initialization Error:", error);
-                showNotification(`Initialization Failed: ${error.message}`, 'bg-red-500');
-                document.getElementById('status-message').innerHTML = `
-                    <p class="text-xl font-semibold text-red-600 mb-2">Initialization Failed</p>
-                    <p class="text-gray-700 font-mono bg-gray-100 p-3 rounded-lg">Error: ${error.message}</p>
-                `;
-            }
-        }
-
-        /**
-         * Writes a document to a public collection and reads it back to confirm connection.
-         */
-        async function testFirestoreConnection() {
-            if (!isAppReady || !userId || !firebaseConfig) return showNotification("App not ready or config missing.", 'bg-red-500');
-
-            try {
-                // Using the public path: artifacts/{appId}/public/data/{collection}/{docId}
-                const docRef = doc(db, `artifacts/${appId}/public/data/status_checks/${userId}`);
-                const timestamp = new Date().toLocaleString();
-                
-                showNotification("Attempting Firestore write...", 'bg-yellow-500');
-
-                // 1. Write a test document
-                await setDoc(docRef, {
-                    last_check: timestamp,
-                    status: "Online",
-                    message: `Firestore public write test successful by user ${userId}.`,
-                    userAgent: navigator.userAgent
-                });
-
-                // 2. Read the document
-                const docSnap = await getDoc(docRef);
-
-                if (docSnap.exists()) {
-                    const data = docSnap.data();
-                    showNotification(`Firestore Test Successful! Status: ${data.status}`, 'bg-purple-600');
-                    document.getElementById('firestore-log').innerHTML = `
-                        <div class="mt-4 p-4 bg-purple-100 rounded-lg border border-purple-400">
-                            <p class="font-bold text-purple-800 mb-2">Firestore Test Result (Public Collection)</p>
-                            <p class="text-sm text-gray-800"><span class="font-medium">Status:</span> ${data.status}</p>
-                            <p class="text-sm text-gray-800"><span class="font-medium">Time:</span> ${data.last_check}</p>
-                            <p class="text-sm text-gray-800"><span class="font-medium">Message:</span> ${data.message}</p>
-                        </div>
-                    `;
-                } else {
-                    showNotification("Write successful, but document not found on read.", 'bg-orange-500');
-                }
-            } catch (e) {
-                console.error("Firestore Test Error:", e);
-                showNotification(`Firestore Test Failed: ${e.message}. Check console for details.`, 'bg-red-700');
-            }
+            document.getElementById('status-message').innerHTML = `
+                <p class="text-xl font-bold text-green-600 mb-2 flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Application Status: Online
+                </p>
+                <p class="text-gray-700">The core application has initialized successfully using local resources.</p>
+                <div class="mt-4 p-4 bg-green-50 rounded-xl border border-green-300">
+                    <p class="text-sm font-semibold text-gray-800">Demo Details:</p>
+                    <p class="text-xs font-mono text-gray-700 break-all">Simulated User ID: <span class="font-bold">${simulatedUserId}</span></p>
+                    <p class="text-xs font-mono text-gray-700 break-all">Date: <span class="font-bold">${new Date().toLocaleString()}</span></p>
+                </div>
+                <button id="test-firestore-btn" class="mt-4 w-full px-4 py-2 bg-gray-400 text-white font-semibold rounded-lg shadow-md cursor-not-allowed" disabled>Data Connectivity (Disabled - No Firebase)</button>
+                <div id="firestore-log"></div>
+            `;
+            showNotification("Application Initialized. Running in Standalone Mode.", 'bg-green-600');
         }
 
         // Run initialization on page load
-        window.onload = initializeFirebase;
+        window.onload = initializeApp;
     </script>
 </head>
 <body class="min-h-screen p-4 sm:p-8 flex items-center justify-center">
@@ -217,18 +73,18 @@
     </div>
 
     <div class="w-full max-w-xl mx-auto bg-white p-6 sm:p-8 rounded-xl shadow-2xl border-t-8 border-blue-500">
-        <h1 class="text-3xl font-bold text-gray-900 mb-2">Firebase Connectivity Check</h1>
-        <p class="text-gray-500 mb-6">Demonstrates successful Firebase initialization and user authentication.</p>
+        <h1 class="text-3xl font-bold text-gray-900 mb-2">Standalone Application Status</h1>
+        <p class="text-gray-500 mb-6">A basic HTML/JS/CSS demonstration running without external backend services.</p>
         
         <div id="status-message" class="mt-6 p-5 border-2 border-dashed border-gray-300 rounded-lg bg-yellow-50">
-            <p class="text-gray-600 font-semibold">Initializing Firebase and checking authentication state...</p>
-            <p class="text-sm text-gray-500 mt-2">If successful, the status box will turn green (or orange for Demo Mode).</p>
+            <p class="text-gray-600 font-semibold">Initializing application...</p>
         </div>
 
-        <h2 class="text-xl font-semibold mt-8 mb-3 text-gray-800">Why this approach is used:</h2>
+        <h2 class="text-xl font-semibold mt-8 mb-3 text-gray-800">Note on Backend Connectivity:</h2>
         <ul class="text-gray-600 list-disc list-inside space-y-1">
-            <li>The previous versions correctly detected placeholder keys or missing environment variables.</li>
-            <li>This version now enters a **Demo Mode** if the environment setup is incomplete, preventing the application from displaying a crash error and instead showing a successful run (with simulated data).</li>
+            <li>This version removes all Firebase dependencies (`initializeApp`, `getFirestore`, etc.).</li>
+            <li>It successfully initializes and runs on static hosting platforms like GitHub Pages without backend errors.</li>
+            <li>The data connectivity button is permanently disabled since there is no database present.</li>
         </ul>
     </div>
 
