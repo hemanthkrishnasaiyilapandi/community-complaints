@@ -1,335 +1,394 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Campus Complaint Tracker</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Set default font to Inter -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f9fafb;
+        }
+        /* Custom scrollbar for better aesthetics on dashboard */
+        .dashboard-container::-webkit-scrollbar {
+            width: 8px;
+        }
+        .dashboard-container::-webkit-scrollbar-thumb {
+            background-color: #a5b4fc;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div id="app-root" class="min-h-screen p-4 sm:p-8">
+        <!-- Application content will be rendered here -->
+    </div>
 
-// --- Utility Functions ---
-
-/**
- * Parses URL parameters to get the location ID.
- * e.g., for URL http://app.com/?locationId=HOS-305, returns 'HOS-305'
- */
-const getLocationIdFromUrl = () => {
-    const params = new URLSearchParams(window.location.search);
-    // Use an intuitive default for manual entry
-    return params.get('locationId') || 'Manual Entry Area / No QR Scanned';
-};
-
-/**
- * Helper to get user-friendly time elapsed. Uses standard JS Date objects.
- */
-const timeSince = (timestamp) => {
-    if (!timestamp) return 'N/A';
-    // timestamp is now a standard JS Date object or ISO string
-    const now = new Date();
-    const then = new Date(timestamp);
-    const seconds = Math.floor((now - then) / 1000);
-
-    let interval = seconds / 31536000;
-    if (interval > 1) return Math.floor(interval) + " years ago";
-    interval = seconds / 2592000;
-    if (interval > 1) return Math.floor(interval) + " months ago";
-    interval = seconds / 86400;
-    if (interval > 1) return Math.floor(interval) + " days ago";
-    interval = seconds / 3600;
-    if (interval > 1) return Math.floor(interval) + " hours ago";
-    interval = seconds / 60;
-    if (interval > 1) return Math.floor(interval) + " minutes ago";
-    return Math.floor(seconds) + " seconds ago";
-};
-
-// --- Constants ---
-
-const STATUS_MAP = {
-    'Pending': 'text-yellow-800 bg-yellow-100',
-    'In Progress': 'text-blue-800 bg-blue-100',
-    'Resolved': 'text-green-800 bg-green-100',
-};
-
-const CATEGORIES = ['Maintenance', 'Safety', 'IT', 'Sanitation', 'Other'];
-
-// --- Main Application Component ---
-
-const App = () => {
-    // In-memory state to hold all complaints, replacing Firestore
-    const [complaints, setComplaints] = useState([]);
-    const [view, setView] = useState('form'); // 'form' or 'dashboard'
-
-    // Mock User ID for reporting (since there is no real authentication)
-    const mockUserId = useMemo(() => `USER-${Math.random().toString(36).substring(2, 10).toUpperCase()}`, []);
-
-    // --- Actions ---
-
-    // Function passed to the form for submitting a new complaint
-    const handleAddComplaint = useCallback((newComplaint) => {
-        setComplaints(prevComplaints => [
-            newComplaint,
-            ...prevComplaints, // Add new complaint to the top
-        ]);
-    }, []);
-
-    // Function passed to the dashboard for changing status
-    const handleUpdateStatus = useCallback((id, currentStatus) => {
-        const newStatus = currentStatus === 'Pending' ? 'In Progress' : 
-                          currentStatus === 'In Progress' ? 'Resolved' : 'Pending';
+    <script>
+        // --- Global State and Constants ---
+        let complaints = [];
+        let currentView = 'form'; // 'form' or 'dashboard'
+        let currentFilter = 'All'; // 'All', 'Pending', 'In Progress', 'Resolved'
         
-        setComplaints(prevComplaints => 
-            prevComplaints.map(c => 
-                c.id === id ? { ...c, status: newStatus } : c
-            )
-        );
-    }, []);
+        // Mock User ID (since there is no real authentication)
+        const mockUserId = `USER-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
 
-    // --- Sub-Components ---
-
-    const ComplaintForm = ({ initialLocationId, onComplaintSubmit, currentUserId }) => {
-        const [locationId, setLocationId] = useState(initialLocationId);
-        const [category, setCategory] = useState(CATEGORIES[0]);
-        const [description, setDescription] = useState('');
-        const [submissionStatus, setSubmissionStatus] = useState(null); // 'success', 'error', 'submitting'
-
-        // Reset submission status after a short delay
-        useEffect(() => {
-            if (submissionStatus === 'success') {
-                const timer = setTimeout(() => setSubmissionStatus(null), 3000);
-                return () => clearTimeout(timer);
-            }
-        }, [submissionStatus]);
-
-
-        const handleSubmit = (e) => {
-            e.preventDefault();
-            setSubmissionStatus('submitting');
-            
-            // Generate unique ID and timestamp client-side
-            const complaintData = {
-                id: Date.now().toString(36) + Math.random().toString(36).substring(2),
-                locationId: locationId || 'Unknown Location',
-                category,
-                description,
-                status: 'Pending',
-                reportedBy: currentUserId,
-                reportedAt: new Date().toISOString(), // Standard timestamp
-            };
-
-            try {
-                onComplaintSubmit(complaintData);
-                setSubmissionStatus('success');
-                
-                // Clear form inputs
-                setCategory(CATEGORIES[0]);
-                setDescription('');
-                
-            } catch (error) {
-                console.error("Error submitting complaint: ", error);
-                setSubmissionStatus('error');
-            }
+        const STATUS_MAP = {
+            'Pending': 'text-yellow-800 bg-yellow-100',
+            'In Progress': 'text-blue-800 bg-blue-100',
+            'Resolved': 'text-green-800 bg-green-100',
         };
 
-        return (
-            <div className="max-w-xl w-full mx-auto p-6 bg-white shadow-2xl rounded-xl border border-gray-100">
-                <h2 className="text-3xl font-extrabold text-indigo-700 mb-6 border-b pb-2">
-                    Report an Issue
-                </h2>
-                
-                {submissionStatus === 'success' && (
-                    <div className="bg-green-100 text-green-800 p-4 rounded-lg mb-4 flex items-center">
-                        <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                        </svg>
-                        Report submitted successfully! (Data stored locally in browser session).
-                    </div>
-                )}
+        const CATEGORIES = ['Maintenance', 'Safety', 'IT', 'Sanitation', 'Other'];
 
-                {submissionStatus === 'error' && (
-                    <div className="bg-red-100 text-red-800 p-4 rounded-lg mb-4">
-                        Submission failed. Please check the console for details.
-                    </div>
-                )}
+        // --- Utility Functions ---
 
-                <form onSubmit={handleSubmit}>
-                    <div className="mb-4">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                            Location ID (Auto-filled from QR)
-                        </label>
-                        <input
-                            type="text"
-                            value={locationId}
-                            onChange={(e) => setLocationId(e.target.value)}
-                            className="w-full p-3 border border-gray-300 rounded-lg bg-gray-50 focus:ring-indigo-500 focus:border-indigo-500 transition duration-150 ease-in-out"
-                            placeholder="e.g., HOS-305, LIB-E3"
-                            required
-                        />
-                        <p className="text-xs text-gray-500 mt-1">
-                            If you scanned a QR, this is automatically filled.
-                        </p>
-                    </div>
+        /**
+         * Parses URL parameters to get the location ID, simulating QR scan.
+         */
+        function getLocationIdFromUrl() {
+            const params = new URLSearchParams(window.location.search);
+            return params.get('locationId') || 'Manual Entry Area / No QR Scanned';
+        }
 
-                    <div className="mb-4">
-                        <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="category">
-                            Issue Category
-                        </label>
-                        <select
-                            id="category"
-                            value={category}
-                            onChange={(e) => setCategory(e.target.value)}
-                            className="w-full p-3 border border-gray-300 rounded-lg bg-white focus:ring-indigo-500 focus:border-indigo-500 transition duration-150 ease-in-out"
-                            required
-                        >
-                            {CATEGORIES.map(cat => (
-                                <option key={cat} value={cat}>{cat}</option>
-                            ))}
-                        </select>
-                    </div>
+        /**
+         * Helper to get user-friendly time elapsed.
+         */
+        function timeSince(isoString) {
+            if (!isoString) return 'N/A';
+            const now = new Date();
+            const then = new Date(isoString);
+            const seconds = Math.floor((now - then) / 1000);
 
-                    <div className="mb-6">
-                        <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="description">
-                            Detailed Description of the Problem
-                        </label>
-                        <textarea
-                            id="description"
-                            value={description}
-                            onChange={(e) => setDescription(e.target.value)}
-                            rows="4"
-                            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition duration-150 ease-in-out"
-                            placeholder="The main light in the room is flickering and the plug socket is broken."
-                            required
-                        />
-                    </div>
+            let interval = seconds / 31536000;
+            if (interval > 1) return Math.floor(interval) + " years ago";
+            interval = seconds / 2592000;
+            if (interval > 1) return Math.floor(interval) + " months ago";
+            interval = seconds / 86400;
+            if (interval > 1) return Math.floor(interval) + " days ago";
+            interval = seconds / 3600;
+            if (interval > 1) return Math.floor(interval) + " hours ago";
+            interval = seconds / 60;
+            if (interval > 1) return Math.floor(interval) + " minutes ago";
+            return Math.floor(seconds) + " seconds ago";
+        }
 
-                    <button
-                        type="submit"
-                        disabled={submissionStatus === 'submitting'}
-                        className="w-full py-3 px-4 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-4 focus:ring-indigo-500 focus:ring-opacity-50 transition duration-300 ease-in-out disabled:bg-indigo-400"
-                    >
-                        {submissionStatus === 'submitting' ? 'Submitting...' : 'Submit Complaint'}
-                    </button>
-                </form>
-                <div className="mt-4 text-center text-sm text-gray-500">
-                    Your Mock User ID: <span className="font-mono text-xs p-1 bg-gray-100 rounded">{currentUserId}</span>
+        // --- Core Application Logic ---
+
+        function switchView(newView) {
+            currentView = newView;
+            renderApp();
+        }
+
+        function handleAddComplaint(event) {
+            event.preventDefault();
+
+            const form = event.target;
+            const locationId = form.locationId.value.trim();
+            const category = form.category.value;
+            const description = form.description.value.trim();
+
+            if (!locationId || !category || !description) return;
+
+            const newComplaint = {
+                id: Date.now().toString(36) + Math.random().toString(36).substring(2),
+                locationId: locationId,
+                category: category,
+                description: description,
+                status: 'Pending',
+                reportedBy: mockUserId,
+                reportedAt: new Date().toISOString(),
+            };
+
+            // Add new complaint to the start of the array
+            complaints.unshift(newComplaint);
+
+            // Display success message
+            const statusDiv = document.getElementById('submission-status');
+            statusDiv.innerHTML = `
+                <div class="bg-green-100 text-green-800 p-4 rounded-lg mb-4 flex items-center">
+                    <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+                    </svg>
+                    Report submitted successfully! (Data stored locally in browser session).
                 </div>
-            </div>
-        );
-    };
+            `;
+            // Clear status after 3 seconds
+            setTimeout(() => { statusDiv.innerHTML = ''; }, 3000);
 
-    const Dashboard = ({ complaints, onUpdateStatus }) => {
-        const [filter, setFilter] = useState('All');
-        const isStaff = true; // Assume access to update status for demonstration
+            // Clear form inputs, keep location ID
+            form.category.value = CATEGORIES[0];
+            form.description.value = '';
 
-        // Sort complaints by time reported (newest first)
-        const sortedComplaints = useMemo(() => {
-            return [...complaints].sort((a, b) => new Date(b.reportedAt) - new Date(a.reportedAt));
-        }, [complaints]);
+            // Update dashboard if visible
+            if (currentView === 'dashboard') renderApp();
+        }
 
-        const filteredComplaints = useMemo(() => {
-            if (filter === 'All') return sortedComplaints;
-            return sortedComplaints.filter(c => c.status === filter);
-        }, [sortedComplaints, filter]);
+        function handleUpdateStatus(id, currentStatus) {
+            const newStatus = currentStatus === 'Pending' ? 'In Progress' : 
+                              currentStatus === 'In Progress' ? 'Resolved' : 'Pending';
+            
+            const index = complaints.findIndex(c => c.id === id);
+            if (index !== -1) {
+                complaints[index].status = newStatus;
+                renderApp(); // Re-render the dashboard to show the update
+            }
+        }
+        
+        function setFilter(filter) {
+            currentFilter = filter;
+            renderApp();
+        }
 
-        return (
-            <div className="max-w-6xl w-full mx-auto p-6 bg-white shadow-2xl rounded-xl border border-gray-100">
-                <h2 className="text-3xl font-extrabold text-indigo-700 mb-6 border-b pb-2">
-                    Campus Issues Dashboard
-                </h2>
+        // --- View Rendering Functions ---
 
-                <div className="text-sm text-red-600 bg-red-50 p-3 rounded-lg mb-6">
-                    Note: This version is client-side only. Data resets when the browser tab is closed.
-                </div>
+        function renderForm(locationId) {
+            return `
+                <div class="max-w-xl w-full mx-auto p-6 bg-white shadow-2xl rounded-xl border border-gray-100">
+                    <h2 class="text-3xl font-extrabold text-indigo-700 mb-6 border-b pb-2">
+                        Report an Issue
+                    </h2>
+                    
+                    <div id="submission-status"></div>
 
-                <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-                    <div className="flex space-x-2">
-                        {['All', 'Pending', 'In Progress', 'Resolved'].map(s => (
-                            <button
-                                key={s}
-                                onClick={() => setFilter(s)}
-                                className={`px-4 py-2 text-sm font-medium rounded-full transition duration-150 ${
-                                    filter === s ? 'bg-indigo-600 text-white shadow-md' : 'bg-gray-100 text-gray-700 hover:bg-indigo-50'
-                                }`}
-                            >
-                                {s} ({complaints.filter(c => s === 'All' || c.status === s).length})
-                            </button>
-                        ))}
-                    </div>
-                    <div className="text-sm text-gray-500">
-                        Total Issues: {complaints.length}
-                    </div>
-                </div>
-
-                {filteredComplaints.length === 0 && (
-                    <div className="text-center py-10 text-lg text-gray-500">
-                        {filter === 'All' ? 'No complaints reported yet.' : `No ${filter} complaints found.`}
-                    </div>
-                )}
-
-                <div className="space-y-4">
-                    {filteredComplaints.map(c => (
-                        <div key={c.id} className="bg-white p-5 border border-gray-200 rounded-xl shadow-lg hover:shadow-xl transition duration-300 ease-in-out flex flex-col sm:flex-row justify-between">
-                            <div className="flex-grow">
-                                <p className="text-xs font-semibold uppercase tracking-wider text-indigo-500">
-                                    {c.category}
-                                </p>
-                                <p className="text-xl font-bold text-gray-900 mb-2">
-                                    {c.locationId}
-                                </p>
-                                <p className="text-gray-700 text-sm mb-3 line-clamp-2">
-                                    {c.description}
-                                </p>
-                                <div className="flex items-center space-x-3 text-xs text-gray-500">
-                                    <span>Reported by: {c.reportedBy.substring(0, 8)}...</span>
-                                    <span>•</span>
-                                    <span>{timeSince(c.reportedAt)}</span>
-                                </div>
-                            </div>
-                            
-                            <div className="flex flex-col items-start sm:items-end justify-center space-y-2 mt-4 sm:mt-0">
-                                <span className={`inline-flex items-center px-3 py-1.5 rounded-full text-sm font-semibold ${STATUS_MAP[c.status]}`}>
-                                    {c.status}
-                                </span>
-                                {isStaff && (
-                                    <button
-                                        onClick={() => onUpdateStatus(c.id, c.status)}
-                                        className="text-xs px-3 py-1 bg-indigo-500 text-white rounded-full hover:bg-indigo-600 transition duration-150 ease-in-out shadow-sm"
-                                    >
-                                        {c.status === 'Resolved' ? 'Reopen Issue' : `Mark as ${c.status === 'Pending' ? 'In Progress' : 'Resolved'}`}
-                                    </button>
-                                )}
-                            </div>
+                    <form id="complaint-form">
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-1" for="locationId">
+                                Location ID (Auto-filled from QR)
+                            </label>
+                            <input
+                                type="text"
+                                id="locationId"
+                                name="locationId"
+                                value="${locationId}"
+                                class="w-full p-3 border border-gray-300 rounded-lg bg-gray-50 focus:ring-indigo-500 focus:border-indigo-500 transition duration-150 ease-in-out"
+                                placeholder="e.g., HOS-305, LIB-E3"
+                                required
+                            />
+                            <p class="text-xs text-gray-500 mt-1">
+                                To simulate QR scan, add <code class="bg-gray-200 p-0.5 rounded text-xs">?locationId=ROOM-ID</code> to the URL.
+                            </p>
                         </div>
-                    ))}
+
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-1" for="category">
+                                Issue Category
+                            </label>
+                            <select
+                                id="category"
+                                name="category"
+                                class="w-full p-3 border border-gray-300 rounded-lg bg-white focus:ring-indigo-500 focus:border-indigo-500 transition duration-150 ease-in-out"
+                                required
+                            >
+                                ${CATEGORIES.map(cat => `<option value="${cat}">${cat}</option>`).join('')}
+                            </select>
+                        </div>
+
+                        <div class="mb-6">
+                            <label class="block text-sm font-medium text-gray-700 mb-1" for="description">
+                                Detailed Description of the Problem
+                            </label>
+                            <textarea
+                                id="description"
+                                name="description"
+                                rows="4"
+                                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition duration-150 ease-in-out"
+                                placeholder="The main light in the room is flickering and the plug socket is broken."
+                                required
+                            ></textarea>
+                        </div>
+
+                        <button
+                            type="submit"
+                            class="w-full py-3 px-4 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-4 focus:ring-indigo-500 focus:ring-opacity-50 transition duration-300 ease-in-out"
+                        >
+                            Submit Complaint
+                        </button>
+                    </form>
+                    <div class="mt-4 text-center text-sm text-gray-500">
+                        Your Mock User ID: <span class="font-mono text-xs p-1 bg-gray-100 rounded">${mockUserId}</span>
+                    </div>
                 </div>
-            </div>
-        );
-    };
+            `;
+        }
 
+        function renderDashboard() {
+            // Sort complaints by time reported (newest first)
+            const sortedComplaints = [...complaints].sort((a, b) => new Date(b.reportedAt) - new Date(a.reportedAt));
+            
+            const filteredComplaints = sortedComplaints.filter(c => currentFilter === 'All' || c.status === currentFilter);
 
-    // --- Render Logic ---
-
-    const initialLocationId = getLocationIdFromUrl();
-    const isDashboardView = view === 'dashboard';
-
-    return (
-        <div className="min-h-screen bg-gray-50 p-4 sm:p-8 font-sans">
-            <header className="flex justify-between items-center mb-8 max-w-6xl mx-auto">
-                <h1 className="text-2xl font-bold text-gray-800 flex items-center">
-                    <svg className="w-6 h-6 mr-2 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.103A.996.996 0 0014.167 4H9.833A.996.996 0 008.382 5.897M4.778 9.355L4.778 9.355C4.048 10.085 4 10.999 4 12v3a2 2 0 002 2h12a2 2 0 002-2v-3c0-1.001-.048-1.915-.778-2.645m-14.444 0a3.999 3.999 0 017.222 0m-7.222 0A3.999 3.999 0 004 12a3.999 3.999 0 003.556 3.645" /></svg>
-                    Campus Tracker (Frontend Only)
-                </h1>
+            const filterButtons = ['All', 'Pending', 'In Progress', 'Resolved'].map(s => `
                 <button
-                    onClick={() => setView(isDashboardView ? 'form' : 'dashboard')}
-                    className="px-4 py-2 bg-indigo-500 text-white text-sm font-medium rounded-full shadow-lg hover:bg-indigo-600 transition duration-150"
+                    data-filter="${s}"
+                    class="filter-btn px-4 py-2 text-sm font-medium rounded-full transition duration-150 ${
+                        currentFilter === s ? 'bg-indigo-600 text-white shadow-md' : 'bg-gray-100 text-gray-700 hover:bg-indigo-50'
+                    }"
                 >
-                    {isDashboardView ? 'Report an Issue' : 'Admin Dashboard'}
+                    ${s} (${complaints.filter(c => s === 'All' || c.status === s).length})
                 </button>
-            </header>
+            `).join('');
 
-            {isDashboardView ? (
-                <Dashboard complaints={complaints} onUpdateStatus={handleUpdateStatus} />
-            ) : (
-                <ComplaintForm 
-                    initialLocationId={initialLocationId} 
-                    onComplaintSubmit={handleAddComplaint}
-                    currentUserId={mockUserId}
-                />
-            )}
-        </div>
-    );
-};
+            const complaintList = filteredComplaints.length === 0 ? `
+                <div class="text-center py-10 text-lg text-gray-500">
+                    ${currentFilter === 'All' ? 'No complaints reported yet.' : `No ${currentFilter} complaints found.`}
+                </div>
+            ` : filteredComplaints.map(c => `
+                <div class="bg-white p-5 border border-gray-200 rounded-xl shadow-lg hover:shadow-xl transition duration-300 ease-in-out flex flex-col sm:flex-row justify-between">
+                    <div class="flex-grow">
+                        <p class="text-xs font-semibold uppercase tracking-wider text-indigo-500">
+                            ${c.category}
+                        </p>
+                        <p class="text-xl font-bold text-gray-900 mb-2">
+                            ${c.locationId}
+                        </p>
+                        <p class="text-gray-700 text-sm mb-3 line-clamp-2">
+                            ${c.description}
+                        </p>
+                        <div class="flex items-center space-x-3 text-xs text-gray-500">
+                            <span>Reported by: ${c.reportedBy.substring(0, 8)}...</span>
+                            <span>•</span>
+                            <span>${timeSince(c.reportedAt)}</span>
+                        </div>
+                    </div>
+                    
+                    <div class="flex flex-col items-start sm:items-end justify-center space-y-2 mt-4 sm:mt-0">
+                        <span class="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-semibold ${STATUS_MAP[c.status]}">
+                            ${c.status}
+                        </span>
+                        <button
+                            data-id="${c.id}"
+                            data-status="${c.status}"
+                            class="status-btn text-xs px-3 py-1 bg-indigo-500 text-white rounded-full hover:bg-indigo-600 transition duration-150 ease-in-out shadow-sm"
+                        >
+                            ${c.status === 'Resolved' ? 'Reopen Issue' : `Mark as ${c.status === 'Pending' ? 'In Progress' : 'Resolved'}`}
+                        </button>
+                    </div>
+                </div>
+            `).join('');
 
-export default App;
+
+            return `
+                <div class="max-w-6xl w-full mx-auto p-6 bg-white shadow-2xl rounded-xl border border-gray-100 dashboard-container">
+                    <h2 class="text-3xl font-extrabold text-indigo-700 mb-6 border-b pb-2">
+                        Campus Issues Dashboard
+                    </h2>
+
+                    <div class="text-sm text-red-600 bg-red-50 p-3 rounded-lg mb-6">
+                        Note: This version is client-side only. Data resets when the browser tab is closed.
+                    </div>
+
+                    <div class="mb-6 flex flex-wrap items-center justify-between gap-4">
+                        <div class="flex space-x-2" id="filter-buttons">
+                            ${filterButtons}
+                        </div>
+                        <div class="text-sm text-gray-500">
+                            Total Issues: ${complaints.length}
+                        </div>
+                    </div>
+
+                    <div class="space-y-4" id="complaint-list">
+                        ${complaintList}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderHeader(isDashboardView) {
+            return `
+                <header class="flex justify-between items-center mb-8 max-w-6xl mx-auto">
+                    <h1 class="text-2xl font-bold text-gray-800 flex items-center">
+                        <svg class="w-6 h-6 mr-2 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.103A.996.996 0 0014.167 4H9.833A.996.996 0 008.382 5.897M4.778 9.355L4.778 9.355C4.048 10.085 4 10.999 4 12v3a2 2 0 002 2h12a2 2 0 002-2v-3c0-1.001-.048-1.915-.778-2.645m-14.444 0a3.999 3.999 0 017.222 0m-7.222 0A3.999 3.999 0 004 12a3.999 3.999 0 003.556 3.645" /></svg>
+                        Campus Tracker (Frontend Only)
+                    </h1>
+                    <button
+                        id="view-switch-btn"
+                        class="px-4 py-2 bg-indigo-500 text-white text-sm font-medium rounded-full shadow-lg hover:bg-indigo-600 transition duration-150"
+                    >
+                        ${isDashboardView ? 'Report an Issue' : 'Admin Dashboard'}
+                    </button>
+                </header>
+            `;
+        }
+
+        function renderApp() {
+            const appRoot = document.getElementById('app-root');
+            const initialLocationId = getLocationIdFromUrl();
+            const isDashboardView = currentView === 'dashboard';
+
+            appRoot.innerHTML = renderHeader(isDashboardView);
+            
+            if (isDashboardView) {
+                appRoot.innerHTML += renderDashboard();
+            } else {
+                appRoot.innerHTML += renderForm(initialLocationId);
+            }
+
+            // --- Attach Listeners ---
+
+            // 1. View Switch Button
+            document.getElementById('view-switch-btn').addEventListener('click', () => {
+                switchView(isDashboardView ? 'form' : 'dashboard');
+            });
+
+            if (!isDashboardView) {
+                // 2. Form Submission Listener
+                document.getElementById('complaint-form')?.addEventListener('submit', handleAddComplaint);
+            } else {
+                // 3. Status Update Listeners
+                document.querySelectorAll('.status-btn').forEach(button => {
+                    button.addEventListener('click', (e) => {
+                        const id = e.target.dataset.id;
+                        const status = e.target.dataset.status;
+                        handleUpdateStatus(id, status);
+                    });
+                });
+                
+                // 4. Filter Buttons Listeners
+                document.querySelectorAll('.filter-btn').forEach(button => {
+                    button.addEventListener('click', (e) => {
+                        const filter = e.target.dataset.filter;
+                        setFilter(filter);
+                    });
+                });
+            }
+        }
+
+        // Initialize the application when the DOM is fully loaded
+        document.addEventListener('DOMContentLoaded', renderApp);
+
+        // --- Demo Data (Optional - for initial view only) ---
+        complaints.push({
+            id: 'demo-1',
+            locationId: 'LIB-G-02',
+            category: 'IT',
+            description: 'The Wi-Fi in the ground floor library study area is constantly dropping connection.',
+            status: 'Pending',
+            reportedBy: 'USER-DEMO1',
+            reportedAt: new Date(Date.now() - 3600000).toISOString(), // 1 hour ago
+        },
+        {
+            id: 'demo-2',
+            locationId: 'HOS-B-312',
+            category: 'Maintenance',
+            description: 'Broken window pane in the north-facing common room. Needs urgent replacement.',
+            status: 'In Progress',
+            reportedBy: 'USER-DEMO2',
+            reportedAt: new Date(Date.now() - 86400000).toISOString(), // 1 day ago
+        },
+        {
+            id: 'demo-3',
+            locationId: 'Canteen Main',
+            category: 'Sanitation',
+            description: 'Overflowing dustbin near the beverage counter. Smells bad.',
+            status: 'Resolved',
+            reportedBy: 'USER-DEMO3',
+            reportedAt: new Date(Date.now() - 604800000).toISOString(), // 1 week ago
+        });
+    </script>
+</body>
+</html>
