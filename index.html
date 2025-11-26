@@ -1,92 +1,335 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Standalone Status Check Demo</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #f0f4f8;
-        }
-    </style>
-    <script>
-        // --- Standalone Demo Logic ---
-        let isAppReady = false;
-        const simulatedUserId = 'GITHUB_PAGES_USER_001';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 
-        /**
-         * Displays a temporary notification banner.
-         */
-        function showNotification(message, colorClass = 'bg-blue-500') {
-            const notificationEl = document.getElementById('notification-banner');
-            notificationEl.textContent = message;
-            notificationEl.className = `fixed top-4 right-4 p-4 rounded-lg text-white shadow-xl z-50 transition-transform transform translate-x-0 ${colorClass}`;
-            
-            setTimeout(() => {
-                notificationEl.classList.add('translate-x-full');
-            }, 5000);
-            
-            setTimeout(() => {
-                 // Reset the class to hide it again
-                 notificationEl.className = 'fixed top-4 right-4 p-4 rounded-lg text-white shadow-xl z-50 transition-transform transform translate-x-full bg-blue-500';
-            }, 6000); 
-        }
+// --- Utility Functions ---
 
-        /**
-         * Initializes the standalone application.
-         */
-        function initializeApp() {
-            // Set a successful simulated status
-            isAppReady = true;
+/**
+ * Parses URL parameters to get the location ID.
+ * e.g., for URL http://app.com/?locationId=HOS-305, returns 'HOS-305'
+ */
+const getLocationIdFromUrl = () => {
+    const params = new URLSearchParams(window.location.search);
+    // Use an intuitive default for manual entry
+    return params.get('locationId') || 'Manual Entry Area / No QR Scanned';
+};
 
-            document.getElementById('status-message').innerHTML = `
-                <p class="text-xl font-bold text-green-600 mb-2 flex items-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    Application Status: Online
-                </p>
-                <p class="text-gray-700">The core application has initialized successfully using local resources.</p>
-                <div class="mt-4 p-4 bg-green-50 rounded-xl border border-green-300">
-                    <p class="text-sm font-semibold text-gray-800">Demo Details:</p>
-                    <p class="text-xs font-mono text-gray-700 break-all">Simulated User ID: <span class="font-bold">${simulatedUserId}</span></p>
-                    <p class="text-xs font-mono text-gray-700 break-all">Date: <span class="font-bold">${new Date().toLocaleString()}</span></p>
-                </div>
-                <button id="test-firestore-btn" class="mt-4 w-full px-4 py-2 bg-gray-400 text-white font-semibold rounded-lg shadow-md cursor-not-allowed" disabled>Data Connectivity (Disabled - No Firebase)</button>
-                <div id="firestore-log"></div>
-            `;
-            showNotification("Application Initialized. Running in Standalone Mode.", 'bg-green-600');
-        }
+/**
+ * Helper to get user-friendly time elapsed. Uses standard JS Date objects.
+ */
+const timeSince = (timestamp) => {
+    if (!timestamp) return 'N/A';
+    // timestamp is now a standard JS Date object or ISO string
+    const now = new Date();
+    const then = new Date(timestamp);
+    const seconds = Math.floor((now - then) / 1000);
 
-        // Run initialization on page load
-        window.onload = initializeApp;
-    </script>
-</head>
-<body class="min-h-screen p-4 sm:p-8 flex items-center justify-center">
+    let interval = seconds / 31536000;
+    if (interval > 1) return Math.floor(interval) + " years ago";
+    interval = seconds / 2592000;
+    if (interval > 1) return Math.floor(interval) + " months ago";
+    interval = seconds / 86400;
+    if (interval > 1) return Math.floor(interval) + " days ago";
+    interval = seconds / 3600;
+    if (interval > 1) return Math.floor(interval) + " hours ago";
+    interval = seconds / 60;
+    if (interval > 1) return Math.floor(interval) + " minutes ago";
+    return Math.floor(seconds) + " seconds ago";
+};
 
-    <!-- Notification Banner -->
-    <div id="notification-banner" class="fixed top-4 right-4 p-4 rounded-lg text-white shadow-xl z-50 transition-transform transform translate-x-full bg-blue-500">
-        <!-- Messages appear here -->
-    </div>
+// --- Constants ---
 
-    <div class="w-full max-w-xl mx-auto bg-white p-6 sm:p-8 rounded-xl shadow-2xl border-t-8 border-blue-500">
-        <h1 class="text-3xl font-bold text-gray-900 mb-2">Standalone Application Status</h1>
-        <p class="text-gray-500 mb-6">A basic HTML/JS/CSS demonstration running without external backend services.</p>
+const STATUS_MAP = {
+    'Pending': 'text-yellow-800 bg-yellow-100',
+    'In Progress': 'text-blue-800 bg-blue-100',
+    'Resolved': 'text-green-800 bg-green-100',
+};
+
+const CATEGORIES = ['Maintenance', 'Safety', 'IT', 'Sanitation', 'Other'];
+
+// --- Main Application Component ---
+
+const App = () => {
+    // In-memory state to hold all complaints, replacing Firestore
+    const [complaints, setComplaints] = useState([]);
+    const [view, setView] = useState('form'); // 'form' or 'dashboard'
+
+    // Mock User ID for reporting (since there is no real authentication)
+    const mockUserId = useMemo(() => `USER-${Math.random().toString(36).substring(2, 10).toUpperCase()}`, []);
+
+    // --- Actions ---
+
+    // Function passed to the form for submitting a new complaint
+    const handleAddComplaint = useCallback((newComplaint) => {
+        setComplaints(prevComplaints => [
+            newComplaint,
+            ...prevComplaints, // Add new complaint to the top
+        ]);
+    }, []);
+
+    // Function passed to the dashboard for changing status
+    const handleUpdateStatus = useCallback((id, currentStatus) => {
+        const newStatus = currentStatus === 'Pending' ? 'In Progress' : 
+                          currentStatus === 'In Progress' ? 'Resolved' : 'Pending';
         
-        <div id="status-message" class="mt-6 p-5 border-2 border-dashed border-gray-300 rounded-lg bg-yellow-50">
-            <p class="text-gray-600 font-semibold">Initializing application...</p>
+        setComplaints(prevComplaints => 
+            prevComplaints.map(c => 
+                c.id === id ? { ...c, status: newStatus } : c
+            )
+        );
+    }, []);
+
+    // --- Sub-Components ---
+
+    const ComplaintForm = ({ initialLocationId, onComplaintSubmit, currentUserId }) => {
+        const [locationId, setLocationId] = useState(initialLocationId);
+        const [category, setCategory] = useState(CATEGORIES[0]);
+        const [description, setDescription] = useState('');
+        const [submissionStatus, setSubmissionStatus] = useState(null); // 'success', 'error', 'submitting'
+
+        // Reset submission status after a short delay
+        useEffect(() => {
+            if (submissionStatus === 'success') {
+                const timer = setTimeout(() => setSubmissionStatus(null), 3000);
+                return () => clearTimeout(timer);
+            }
+        }, [submissionStatus]);
+
+
+        const handleSubmit = (e) => {
+            e.preventDefault();
+            setSubmissionStatus('submitting');
+            
+            // Generate unique ID and timestamp client-side
+            const complaintData = {
+                id: Date.now().toString(36) + Math.random().toString(36).substring(2),
+                locationId: locationId || 'Unknown Location',
+                category,
+                description,
+                status: 'Pending',
+                reportedBy: currentUserId,
+                reportedAt: new Date().toISOString(), // Standard timestamp
+            };
+
+            try {
+                onComplaintSubmit(complaintData);
+                setSubmissionStatus('success');
+                
+                // Clear form inputs
+                setCategory(CATEGORIES[0]);
+                setDescription('');
+                
+            } catch (error) {
+                console.error("Error submitting complaint: ", error);
+                setSubmissionStatus('error');
+            }
+        };
+
+        return (
+            <div className="max-w-xl w-full mx-auto p-6 bg-white shadow-2xl rounded-xl border border-gray-100">
+                <h2 className="text-3xl font-extrabold text-indigo-700 mb-6 border-b pb-2">
+                    Report an Issue
+                </h2>
+                
+                {submissionStatus === 'success' && (
+                    <div className="bg-green-100 text-green-800 p-4 rounded-lg mb-4 flex items-center">
+                        <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                        </svg>
+                        Report submitted successfully! (Data stored locally in browser session).
+                    </div>
+                )}
+
+                {submissionStatus === 'error' && (
+                    <div className="bg-red-100 text-red-800 p-4 rounded-lg mb-4">
+                        Submission failed. Please check the console for details.
+                    </div>
+                )}
+
+                <form onSubmit={handleSubmit}>
+                    <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Location ID (Auto-filled from QR)
+                        </label>
+                        <input
+                            type="text"
+                            value={locationId}
+                            onChange={(e) => setLocationId(e.target.value)}
+                            className="w-full p-3 border border-gray-300 rounded-lg bg-gray-50 focus:ring-indigo-500 focus:border-indigo-500 transition duration-150 ease-in-out"
+                            placeholder="e.g., HOS-305, LIB-E3"
+                            required
+                        />
+                        <p className="text-xs text-gray-500 mt-1">
+                            If you scanned a QR, this is automatically filled.
+                        </p>
+                    </div>
+
+                    <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="category">
+                            Issue Category
+                        </label>
+                        <select
+                            id="category"
+                            value={category}
+                            onChange={(e) => setCategory(e.target.value)}
+                            className="w-full p-3 border border-gray-300 rounded-lg bg-white focus:ring-indigo-500 focus:border-indigo-500 transition duration-150 ease-in-out"
+                            required
+                        >
+                            {CATEGORIES.map(cat => (
+                                <option key={cat} value={cat}>{cat}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div className="mb-6">
+                        <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="description">
+                            Detailed Description of the Problem
+                        </label>
+                        <textarea
+                            id="description"
+                            value={description}
+                            onChange={(e) => setDescription(e.target.value)}
+                            rows="4"
+                            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition duration-150 ease-in-out"
+                            placeholder="The main light in the room is flickering and the plug socket is broken."
+                            required
+                        />
+                    </div>
+
+                    <button
+                        type="submit"
+                        disabled={submissionStatus === 'submitting'}
+                        className="w-full py-3 px-4 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-4 focus:ring-indigo-500 focus:ring-opacity-50 transition duration-300 ease-in-out disabled:bg-indigo-400"
+                    >
+                        {submissionStatus === 'submitting' ? 'Submitting...' : 'Submit Complaint'}
+                    </button>
+                </form>
+                <div className="mt-4 text-center text-sm text-gray-500">
+                    Your Mock User ID: <span className="font-mono text-xs p-1 bg-gray-100 rounded">{currentUserId}</span>
+                </div>
+            </div>
+        );
+    };
+
+    const Dashboard = ({ complaints, onUpdateStatus }) => {
+        const [filter, setFilter] = useState('All');
+        const isStaff = true; // Assume access to update status for demonstration
+
+        // Sort complaints by time reported (newest first)
+        const sortedComplaints = useMemo(() => {
+            return [...complaints].sort((a, b) => new Date(b.reportedAt) - new Date(a.reportedAt));
+        }, [complaints]);
+
+        const filteredComplaints = useMemo(() => {
+            if (filter === 'All') return sortedComplaints;
+            return sortedComplaints.filter(c => c.status === filter);
+        }, [sortedComplaints, filter]);
+
+        return (
+            <div className="max-w-6xl w-full mx-auto p-6 bg-white shadow-2xl rounded-xl border border-gray-100">
+                <h2 className="text-3xl font-extrabold text-indigo-700 mb-6 border-b pb-2">
+                    Campus Issues Dashboard
+                </h2>
+
+                <div className="text-sm text-red-600 bg-red-50 p-3 rounded-lg mb-6">
+                    Note: This version is client-side only. Data resets when the browser tab is closed.
+                </div>
+
+                <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+                    <div className="flex space-x-2">
+                        {['All', 'Pending', 'In Progress', 'Resolved'].map(s => (
+                            <button
+                                key={s}
+                                onClick={() => setFilter(s)}
+                                className={`px-4 py-2 text-sm font-medium rounded-full transition duration-150 ${
+                                    filter === s ? 'bg-indigo-600 text-white shadow-md' : 'bg-gray-100 text-gray-700 hover:bg-indigo-50'
+                                }`}
+                            >
+                                {s} ({complaints.filter(c => s === 'All' || c.status === s).length})
+                            </button>
+                        ))}
+                    </div>
+                    <div className="text-sm text-gray-500">
+                        Total Issues: {complaints.length}
+                    </div>
+                </div>
+
+                {filteredComplaints.length === 0 && (
+                    <div className="text-center py-10 text-lg text-gray-500">
+                        {filter === 'All' ? 'No complaints reported yet.' : `No ${filter} complaints found.`}
+                    </div>
+                )}
+
+                <div className="space-y-4">
+                    {filteredComplaints.map(c => (
+                        <div key={c.id} className="bg-white p-5 border border-gray-200 rounded-xl shadow-lg hover:shadow-xl transition duration-300 ease-in-out flex flex-col sm:flex-row justify-between">
+                            <div className="flex-grow">
+                                <p className="text-xs font-semibold uppercase tracking-wider text-indigo-500">
+                                    {c.category}
+                                </p>
+                                <p className="text-xl font-bold text-gray-900 mb-2">
+                                    {c.locationId}
+                                </p>
+                                <p className="text-gray-700 text-sm mb-3 line-clamp-2">
+                                    {c.description}
+                                </p>
+                                <div className="flex items-center space-x-3 text-xs text-gray-500">
+                                    <span>Reported by: {c.reportedBy.substring(0, 8)}...</span>
+                                    <span>•</span>
+                                    <span>{timeSince(c.reportedAt)}</span>
+                                </div>
+                            </div>
+                            
+                            <div className="flex flex-col items-start sm:items-end justify-center space-y-2 mt-4 sm:mt-0">
+                                <span className={`inline-flex items-center px-3 py-1.5 rounded-full text-sm font-semibold ${STATUS_MAP[c.status]}`}>
+                                    {c.status}
+                                </span>
+                                {isStaff && (
+                                    <button
+                                        onClick={() => onUpdateStatus(c.id, c.status)}
+                                        className="text-xs px-3 py-1 bg-indigo-500 text-white rounded-full hover:bg-indigo-600 transition duration-150 ease-in-out shadow-sm"
+                                    >
+                                        {c.status === 'Resolved' ? 'Reopen Issue' : `Mark as ${c.status === 'Pending' ? 'In Progress' : 'Resolved'}`}
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+    };
+
+
+    // --- Render Logic ---
+
+    const initialLocationId = getLocationIdFromUrl();
+    const isDashboardView = view === 'dashboard';
+
+    return (
+        <div className="min-h-screen bg-gray-50 p-4 sm:p-8 font-sans">
+            <header className="flex justify-between items-center mb-8 max-w-6xl mx-auto">
+                <h1 className="text-2xl font-bold text-gray-800 flex items-center">
+                    <svg className="w-6 h-6 mr-2 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.103A.996.996 0 0014.167 4H9.833A.996.996 0 008.382 5.897M4.778 9.355L4.778 9.355C4.048 10.085 4 10.999 4 12v3a2 2 0 002 2h12a2 2 0 002-2v-3c0-1.001-.048-1.915-.778-2.645m-14.444 0a3.999 3.999 0 017.222 0m-7.222 0A3.999 3.999 0 004 12a3.999 3.999 0 003.556 3.645" /></svg>
+                    Campus Tracker (Frontend Only)
+                </h1>
+                <button
+                    onClick={() => setView(isDashboardView ? 'form' : 'dashboard')}
+                    className="px-4 py-2 bg-indigo-500 text-white text-sm font-medium rounded-full shadow-lg hover:bg-indigo-600 transition duration-150"
+                >
+                    {isDashboardView ? 'Report an Issue' : 'Admin Dashboard'}
+                </button>
+            </header>
+
+            {isDashboardView ? (
+                <Dashboard complaints={complaints} onUpdateStatus={handleUpdateStatus} />
+            ) : (
+                <ComplaintForm 
+                    initialLocationId={initialLocationId} 
+                    onComplaintSubmit={handleAddComplaint}
+                    currentUserId={mockUserId}
+                />
+            )}
         </div>
+    );
+};
 
-        <h2 class="text-xl font-semibold mt-8 mb-3 text-gray-800">Note on Backend Connectivity:</h2>
-        <ul class="text-gray-600 list-disc list-inside space-y-1">
-            <li>This version removes all Firebase dependencies (`initializeApp`, `getFirestore`, etc.).</li>
-            <li>It successfully initializes and runs on static hosting platforms like GitHub Pages without backend errors.</li>
-            <li>The data connectivity button is permanently disabled since there is no database present.</li>
-        </ul>
-    </div>
-
-</body>
-</html>
+export default App;
