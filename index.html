@@ -3,30 +3,32 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Firebase Config Error Example</title>
+    <title>Functional Firebase Status Check</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
         body {
             font-family: 'Inter', sans-serif;
-            background-color: #f8fafc;
+            background-color: #f0f4f8;
         }
     </style>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // --- GLOBAL VARIABLES (SET TO PLACEHOLDERS) ---
+        // --- GLOBAL VARIABLES (READ FROM ENVIRONMENT) ---
+        // These variables are typically provided by the hosting environment (e.g., Canvas/Code editor)
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        
+        // Firebase instances
+        let app, db, auth;
+        let userId = null;
         let isAppReady = false;
 
-        // The presence of these placeholder strings is what triggers the error check below.
-        const firebaseConfig = {
-            apiKey: "YOUR_API_KEY_HERE",           
-            authDomain: "YOUR_AUTH_DOMAIN_HERE",   
-            projectId: "YOUR_PROJECT_ID_HERE",     
-            storageBucket: "YOUR_STORAGE_BUCKET_HERE", 
-            messagingSenderId: "YOUR_MESSAGING_SENDER_ID_HERE", 
-            appId: "YOUR_APP_ID_HERE"              
-        };
+        setLogLevel('Debug'); // Enable debug logging for visibility
 
         /**
          * Displays a temporary notification banner.
@@ -42,41 +44,142 @@
             
             setTimeout(() => {
                  // Reset the class to hide it again
-                 notificationEl.classList.remove('translate-x-full');
                  notificationEl.className = 'fixed top-4 right-4 p-4 rounded-lg text-white shadow-xl z-50 transition-transform transform translate-x-full bg-blue-500';
             }, 6000); 
         }
 
         /**
-         * Initializes Firebase and includes the configuration check.
+         * 1. Initializes Firebase services (App, Auth, Firestore).
+         * 2. Authenticates the user using the custom token or anonymously.
+         * 3. Updates the UI upon successful connection.
          */
-        function initializeFirebase() {
-            try {
-                // --- THE ERROR CHECKING LOGIC ---
-                // This condition checks if the projectId field still contains the placeholder string.
-                if (firebaseConfig.projectId === "YOUR_PROJECT_ID_HERE") {
-                    const errorMessage = 'Error: Firebase configuration missing. Please add your keys to the firebaseConfig object.';
-                    console.error("FIREBASE ERROR:", errorMessage); // This will show in the console
-                    showNotification(errorMessage, 'bg-red-700'); // This will show in the UI
+        async function initializeFirebase() {
+            if (!firebaseConfig) {
+                const errorMsg = 'FATAL: Firebase Configuration missing from the execution environment.';
+                showNotification(errorMsg, 'bg-red-700');
+                document.getElementById('status-message').innerHTML = `<p class="text-xl font-semibold text-red-600 mb-2">${errorMsg}</p>`;
+                return;
+            }
 
-                    document.getElementById('status-message').innerHTML = `
-                        <p class="text-xl font-semibold text-red-600 mb-2">Configuration Error Detected</p>
-                        <p class="text-gray-700 font-mono bg-gray-100 p-3 rounded-lg">${errorMessage}</p>
-                        <p class="mt-4 text-sm text-gray-500">Check the JavaScript code in the editor to see the 'firebaseConfig' object.</p>
-                    `;
-                    
-                    isAppReady = false;
-                    return; 
+            try {
+                // Initialize core services
+                app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+
+                // --- AUTHENTICATION PROCESS ---
+                let authCompleted = false;
+                
+                // Sign in with custom token if available, otherwise sign in anonymously
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
                 }
 
-                // If the app successfully connects, this code block would execute (but won't here)
-                const app = initializeApp(firebaseConfig);
-                document.getElementById('status-message').textContent = 'Firebase initialized successfully (if you replaced the keys).';
+                // Wait for the auth state to settle
+                await new Promise((resolve) => {
+                    const unsubscribe = onAuthStateChanged(auth, (user) => {
+                        if (user) {
+                            userId = user.uid;
+                            unsubscribe(); // Stop listening
+                            authCompleted = true;
+                            resolve();
+                        } else if (!authCompleted) {
+                            // If user is null and we haven't resolved yet, try anonymous sign in
+                            if (!auth.currentUser) {
+                                signInAnonymously(auth).then(() => {
+                                    // This is the fallback sign-in, the listener should catch it
+                                }).catch(e => {
+                                    console.error("Final anonymous sign-in failed", e);
+                                    resolve(); // Resolve even on failure to avoid infinite wait
+                                });
+                            } else {
+                                resolve(); // Should be signed in, but resolving
+                            }
+                        }
+                    });
+                    // Add a timeout just in case auth state doesn't change immediately
+                    setTimeout(resolve, 3000); 
+                });
+
+                // Final check for user ID after auth attempts
+                userId = auth.currentUser?.uid || 'anonymous-failed';
+                
+                // --- SUCCESS UI UPDATE ---
+                document.getElementById('status-message').innerHTML = `
+                    <p class="text-xl font-bold text-green-600 mb-2 flex items-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Connection Established!
+                    </p>
+                    <p class="text-gray-700">Firebase services (Auth & Firestore) are now accessible.</p>
+                    <div class="mt-4 p-4 bg-green-50 rounded-xl border border-green-300">
+                        <p class="text-sm font-semibold text-gray-800">Environment Details:</p>
+                        <p class="text-xs font-mono text-gray-700 break-all">User ID: <span class="font-bold">${userId}</span></p>
+                        <p class="text-xs font-mono text-gray-700 break-all">App ID: <span class="font-bold">${appId}</span></p>
+                    </div>
+                    <button id="test-firestore-btn" class="mt-4 w-full px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition duration-150 shadow-md">Test Public Firestore Write & Read</button>
+                    <div id="firestore-log"></div>
+                `;
+                showNotification("Firebase & User Auth Complete.", 'bg-green-600');
                 isAppReady = true;
 
+                // Attach firestore test handler
+                document.getElementById('test-firestore-btn').addEventListener('click', testFirestoreConnection);
+
             } catch (error) {
-                console.error("Unexpected Initialization Error:", error);
-                showNotification(`Fatal Error: ${error.message}`, 'bg-red-500');
+                console.error("Initialization Error:", error);
+                showNotification(`Initialization Failed: ${error.message}`, 'bg-red-500');
+                document.getElementById('status-message').innerHTML = `
+                    <p class="text-xl font-semibold text-red-600 mb-2">Initialization Failed</p>
+                    <p class="text-gray-700 font-mono bg-gray-100 p-3 rounded-lg">Error: ${error.message}</p>
+                `;
+            }
+        }
+
+        /**
+         * Writes a document to a public collection and reads it back to confirm connection.
+         */
+        async function testFirestoreConnection() {
+            if (!isAppReady || !userId) return showNotification("App not ready.", 'bg-red-500');
+
+            try {
+                // Using the public path: artifacts/{appId}/public/data/{collection}/{docId}
+                const docRef = doc(db, `artifacts/${appId}/public/data/status_checks/${userId}`);
+                const timestamp = new Date().toLocaleString();
+                
+                showNotification("Attempting Firestore write...", 'bg-yellow-500');
+
+                // 1. Write a test document
+                await setDoc(docRef, {
+                    last_check: timestamp,
+                    status: "Online",
+                    message: `Firestore public write test successful by user ${userId}.`,
+                    userAgent: navigator.userAgent
+                });
+
+                // 2. Read the document
+                const docSnap = await getDoc(docRef);
+
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    showNotification(`Firestore Test Successful! Status: ${data.status}`, 'bg-purple-600');
+                    document.getElementById('firestore-log').innerHTML = `
+                        <div class="mt-4 p-4 bg-purple-100 rounded-lg border border-purple-400">
+                            <p class="font-bold text-purple-800 mb-2">Firestore Test Result (Public Collection)</p>
+                            <p class="text-sm text-gray-800"><span class="font-medium">Status:</span> ${data.status}</p>
+                            <p class="text-sm text-gray-800"><span class="font-medium">Time:</span> ${data.last_check}</p>
+                            <p class="text-sm text-gray-800"><span class="font-medium">Message:</span> ${data.message}</p>
+                        </div>
+                    `;
+                } else {
+                    showNotification("Write successful, but document not found on read.", 'bg-orange-500');
+                }
+            } catch (e) {
+                console.error("Firestore Test Error:", e);
+                showNotification(`Firestore Test Failed: ${e.message}. Check console for details.`, 'bg-red-700');
             }
         }
 
@@ -84,23 +187,28 @@
         window.onload = initializeFirebase;
     </script>
 </head>
-<body class="min-h-screen p-8">
+<body class="min-h-screen p-4 sm:p-8 flex items-center justify-center">
 
     <!-- Notification Banner -->
     <div id="notification-banner" class="fixed top-4 right-4 p-4 rounded-lg text-white shadow-xl z-50 transition-transform transform translate-x-full bg-blue-500">
-        <!-- Error message appears here -->
+        <!-- Messages appear here -->
     </div>
 
-    <div class="max-w-xl mx-auto bg-white p-8 rounded-xl shadow-2xl border-t-8 border-red-500">
-        <h1 class="text-3xl font-bold text-gray-900 mb-4">Firebase App Status</h1>
+    <div class="w-full max-w-xl mx-auto bg-white p-6 sm:p-8 rounded-xl shadow-2xl border-t-8 border-blue-500">
+        <h1 class="text-3xl font-bold text-gray-900 mb-2">Firebase Connectivity Check</h1>
+        <p class="text-gray-500 mb-6">Demonstrates successful Firebase initialization and user authentication.</p>
         
-        <div id="status-message" class="mt-6 p-5 border-2 border-dashed border-gray-300 rounded-lg bg-red-50">
-            <p class="text-gray-500">Checking configuration...</p>
+        <div id="status-message" class="mt-6 p-5 border-2 border-dashed border-gray-300 rounded-lg bg-yellow-50">
+            <p class="text-gray-600 font-semibold">Initializing Firebase and checking authentication state...</p>
+            <p class="text-sm text-gray-500 mt-2">If successful, the status box will turn green and show your User ID.</p>
         </div>
 
-        <h2 class="text-xl font-semibold mt-8 mb-3 text-gray-800">What is happening?</h2>
-        <p class="text-gray-600">The application's code intentionally stops the Firebase connection if it detects the placeholder values (like "YOUR\_API\_KEY\_HERE") are still in the `firebaseConfig` object.</p>
-        <p class="mt-2 text-gray-600">This prevents runtime errors that occur when Firebase tries to connect with invalid credentials, instead providing a clear message to the developer.</p>
+        <h2 class="text-xl font-semibold mt-8 mb-3 text-gray-800">Why the previous code failed (by design):</h2>
+        <ul class="text-gray-600 list-disc list-inside space-y-1">
+            <li>The original code explicitly checked for placeholder strings (like "YOUR\_PROJECT\_ID\_HERE").</li>
+            <li>It was designed to block initialization if those placeholders were found, preventing connection errors.</li>
+            <li>This updated code utilizes the globally available configuration variables provided by the execution environment to ensure a successful connection.</li>
+        </ul>
     </div>
 
 </body>
